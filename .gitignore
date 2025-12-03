@@ -1,3 +1,10 @@
 mos-calculate.py
 config.json
 __pycache__/
+main.spec
+build/
+dist/
+icon.ico
+requirements.txt
+setup.py
+version_info.txt

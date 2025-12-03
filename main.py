@@ -90,7 +90,7 @@ class MonitorMOS:
         ttk.Label(info_frame, text=ips_text, 
                  font=('Arial', 9), foreground='gray').pack(anchor=tk.W, pady=5)
         
-        # Botón de inicio
+        # Botón de inicio (más grande y visible)
         btn_iniciar = tk.Button(main_frame, 
                                text="▶ Iniciar Monitoreo", 
                                command=self.iniciar_monitoreo,

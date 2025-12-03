@@ -3,16 +3,17 @@ mos_functions.py
 Funciones core para cálculo de MOS en VoIP
 """
 
-import subprocess
-import re
+import ping3
 import statistics
 from datetime import datetime
-import platform
+import time
+import os
 
 
 def hacer_ping(ip, cantidad=10):
     """
     Realiza ping a una IP y guarda los resultados en un archivo.
+    Ejecuta 1 ping por segundo para simular tráfico real.
     
     Parámetros:
     - ip: Dirección IP a hacer ping
@@ -21,36 +22,65 @@ def hacer_ping(ip, cantidad=10):
     Retorna:
     - nombre_archivo: Ruta del archivo creado o None si hay error
     """
+    # Crear carpeta pings si no existe
+    if not os.path.exists('pings'):
+        os.makedirs('pings')
+    
     fecha_hora = datetime.now().strftime("%Y%m%d-%H%M%S")
     nombre_archivo = f"pings/ping-{ip}-{fecha_hora}.txt"
     
-    sistema = platform.system().lower()
-    
     try:
-        if sistema == "windows":
-            comando = ["ping", "-n", str(cantidad), ip]
-        else:  # Linux, macOS
-            comando = ["ping", "-c", str(cantidad), ip]
+        latencias = []
+        paquetes_enviados = 0
+        paquetes_recibidos = 0
         
-        resultado = subprocess.run(
-            comando,
-            capture_output=True,
-            text=True,
-            timeout=cantidad * 2
-        )
+        # Realizar pings con intervalo de 1 segundo
+        for i in range(cantidad):
+            inicio = time.time()
+            paquetes_enviados += 1
+            
+            try:
+                # ping3 retorna el tiempo en segundos o None si falla
+                resultado = ping3.ping(ip, timeout=1)
+                if resultado is not None:
+                    # Convertir a milisegundos
+                    latencia_ms = resultado * 1000
+                    latencias.append(latencia_ms)
+                    paquetes_recibidos += 1
+            except Exception:
+                pass  # Paquete perdido
+            
+            # Esperar para completar 1 segundo total
+            tiempo_transcurrido = time.time() - inicio
+            if tiempo_transcurrido < 1.0:
+                time.sleep(1.0 - tiempo_transcurrido)
         
+        # Calcular pérdida
+        paquetes_perdidos = paquetes_enviados - paquetes_recibidos
+        porcentaje_perdida = (paquetes_perdidos / paquetes_enviados) * 100 if paquetes_enviados > 0 else 0
+        
+        # Guardar resultados en archivo
         with open(nombre_archivo, 'w', encoding='utf-8') as f:
             f.write(f"Ping a {ip} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("=" * 60 + "\n\n")
-            f.write(resultado.stdout)
-            if resultado.stderr:
-                f.write("\nErrores:\n")
-                f.write(resultado.stderr)
+            f.write(f"Paquetes: enviados = {paquetes_enviados}, recibidos = {paquetes_recibidos}, ")
+            f.write(f"perdidos = {paquetes_perdidos} ({porcentaje_perdida:.2f}% perdidos)\n\n")
+            
+            if latencias:
+                f.write("Estadísticas:\n")
+                f.write(f"  Latencia mínima: {min(latencias):.2f} ms\n")
+                f.write(f"  Latencia máxima: {max(latencias):.2f} ms\n")
+                f.write(f"  Latencia promedio: {statistics.mean(latencias):.2f} ms\n")
+                if len(latencias) > 1:
+                    f.write(f"  Jitter (desv. estándar): {statistics.stdev(latencias):.2f} ms\n")
+                f.write("\nDetalles de cada ping:\n")
+                for i, lat in enumerate(latencias, 1):
+                    f.write(f"  Ping {i}: time={lat:.2f} ms\n")
+            else:
+                f.write("No se recibieron respuestas.\n")
         
-        return nombre_archivo
+        return nombre_archivo if latencias else None
         
-    except subprocess.TimeoutExpired:
-        return None
     except Exception as e:
         return None
 
@@ -69,20 +99,20 @@ def calcular_latencia_promedio(archivo):
         with open(archivo, 'r', encoding='utf-8') as f:
             contenido = f.read()
         
-        patrones = [
-            r'tiempo[=<](\d+\.?\d*)\s*ms',
-            r'time[=<](\d+\.?\d*)\s*ms',
-        ]
+        # Buscar líneas con formato "Ping X: time=XX.XX ms"
+        import re
+        patron = r'time=(\d+\.?\d*)\s*ms'
+        matches = re.findall(patron, contenido, re.IGNORECASE)
         
-        latencias = []
-        for patron in patrones:
-            matches = re.findall(patron, contenido, re.IGNORECASE)
-            if matches:
-                latencias.extend([float(m) for m in matches])
-        
-        if not latencias:
+        if not matches:
+            # Intentar con formato alternativo
+            patron_alt = r'Latencia promedio:\s*(\d+\.?\d*)\s*ms'
+            match_alt = re.search(patron_alt, contenido, re.IGNORECASE)
+            if match_alt:
+                return float(match_alt.group(1))
             return None
         
+        latencias = [float(m) for m in matches]
         return statistics.mean(latencias)
         
     except FileNotFoundError:
@@ -105,16 +135,20 @@ def calcular_jitter(archivo):
         with open(archivo, 'r', encoding='utf-8') as f:
             contenido = f.read()
         
-        patrones = [
-            r'tiempo[=<](\d+\.?\d*)\s*ms',
-            r'time[=<](\d+\.?\d*)\s*ms',
-        ]
+        import re
+        # Buscar líneas con formato "Ping X: time=XX.XX ms"
+        patron = r'time=(\d+\.?\d*)\s*ms'
+        matches = re.findall(patron, contenido, re.IGNORECASE)
         
-        latencias = []
-        for patron in patrones:
-            matches = re.findall(patron, contenido, re.IGNORECASE)
-            if matches:
-                latencias.extend([float(m) for m in matches])
+        if not matches:
+            # Intentar con formato alternativo
+            patron_alt = r'Jitter.*?:\s*(\d+\.?\d*)\s*ms'
+            match_alt = re.search(patron_alt, contenido, re.IGNORECASE)
+            if match_alt:
+                return float(match_alt.group(1))
+            return None
+        
+        latencias = [float(m) for m in matches]
         
         if len(latencias) < 2:
             return None
@@ -141,26 +175,22 @@ def calcular_paquetes_perdidos(archivo):
         with open(archivo, 'r', encoding='utf-8') as f:
             contenido = f.read()
         
-        # Windows español
+        import re
+        # Formato propio: "enviados = X, recibidos = Y, perdidos = Z (W% perdidos)"
         match = re.search(r'enviados\s*=\s*(\d+).*?recibidos\s*=\s*(\d+)', contenido, re.IGNORECASE)
         if match:
             enviados = int(match.group(1))
             recibidos = int(match.group(2))
             perdidos = enviados - recibidos
             porcentaje = (perdidos / enviados) * 100 if enviados > 0 else 0
-        else:
-            # Linux/macOS o Windows inglés
-            match = re.search(r'(\d+)\s+packets?\s+transmitted.*?(\d+)\s+received.*?(\d+\.?\d*)%\s+packet\s+loss', contenido, re.IGNORECASE)
-            if match:
-                porcentaje = float(match.group(3))
-            else:
-                match = re.search(r'(\d+\.?\d*)%\s+(perdidos|loss)', contenido, re.IGNORECASE)
-                if match:
-                    porcentaje = float(match.group(1))
-                else:
-                    return None
+            return porcentaje
         
-        return porcentaje
+        # Buscar porcentaje directo
+        match = re.search(r'(\d+\.?\d*)%\s+(perdidos|loss)', contenido, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+        
+        return None
         
     except FileNotFoundError:
         return None
