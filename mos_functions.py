@@ -42,7 +42,9 @@ def hacer_ping(ip, cantidad=10):
             try:
                 # ping3 retorna el tiempo en segundos o None si falla
                 resultado = ping3.ping(ip, timeout=1)
-                if resultado is not None:
+                # Validar que el resultado sea válido (mayor a 0.001 segundos = 1ms y no None)
+                # Rechazamos latencias menores a 1ms ya que son probablemente errores o localhost
+                if resultado is not None and resultado > 0.001:
                     # Convertir a milisegundos
                     latencia_ms = resultado * 1000
                     latencias.append(latencia_ms)
@@ -77,9 +79,14 @@ def hacer_ping(ip, cantidad=10):
                 for i, lat in enumerate(latencias, 1):
                     f.write(f"  Ping {i}: time={lat:.2f} ms\n")
             else:
-                f.write("No se recibieron respuestas.\n")
+                f.write("No se recibieron respuestas válidas.\n")
         
-        return nombre_archivo if latencias else None
+        # Solo retornar el archivo si hay al menos algunas respuestas válidas
+        # y la pérdida no es mayor al 50% (VoIP no funciona con más pérdida)
+        if latencias and len(latencias) >= 5 and porcentaje_perdida <= 50:
+            return nombre_archivo
+        else:
+            return None
         
     except Exception as e:
         return None
@@ -219,7 +226,13 @@ def calcular_mos(latencia_promedio, jitter, perdida_paquetes):
     
     R = R - (perdida_paquetes * 2.5)
     
+    # Limitar R entre 0 y 100
+    R = max(0, min(100, R))
+    
     MOS = 1 + (0.035 * R) + (0.000007 * R * (R - 60) * (100 - R))
+    
+    # Limitar MOS entre 1 y 5
+    MOS = max(1.0, min(5.0, MOS))
     
     return MOS, R, latencia_efectiva
 
@@ -261,7 +274,7 @@ def analizar_ip(ip, cantidad_pings):
         # Realizar ping
         archivo = hacer_ping(ip, cantidad_pings)
         if not archivo:
-            return {'error': True, 'mensaje': 'No se pudo hacer ping a la IP'}
+            return {'error': True, 'mensaje': 'Conexión inestable o sin respuesta (>50% pérdida)'}
         
         # Calcular métricas
         latencia = calcular_latencia_promedio(archivo)
@@ -275,6 +288,10 @@ def analizar_ip(ip, cantidad_pings):
             return {'error': True, 'mensaje': 'No se pudo calcular el jitter'}
         if perdida is None:
             return {'error': True, 'mensaje': 'No se pudo calcular la pérdida de paquetes'}
+        
+        # Verificar que la pérdida no sea excesiva (backup check)
+        if perdida > 50:
+            return {'error': True, 'mensaje': f'Pérdida de paquetes excesiva ({perdida:.1f}%)'}
         
         # Calcular MOS
         mos, r_factor, lat_efectiva = calcular_mos(latencia, jitter, perdida)
