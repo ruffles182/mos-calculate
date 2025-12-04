@@ -130,42 +130,53 @@ def calcular_latencia_promedio(archivo):
 
 def calcular_jitter(archivo):
     """
-    Calcula el jitter (variación de latencia) desde un archivo de ping.
+    Calcula el jitter según el método de PingPlotter:
+    promedio de diferencias absolutas entre latencias consecutivas.
     
     Parámetros:
     - archivo: Ruta del archivo con resultados de ping
     
     Retorna:
-    - jitter: Jitter en ms (desviación estándar) o None si hay error
+    - jitter: Jitter en ms o None si hay error
     """
     try:
         with open(archivo, 'r', encoding='utf-8') as f:
             contenido = f.read()
-        
+
         import re
+
         # Buscar líneas con formato "Ping X: time=XX.XX ms"
         patron = r'time=(\d+\.?\d*)\s*ms'
         matches = re.findall(patron, contenido, re.IGNORECASE)
-        
+
         if not matches:
-            # Intentar con formato alternativo
+            # Intentar extraer jitter pre-calculado si existiera
             patron_alt = r'Jitter.*?:\s*(\d+\.?\d*)\s*ms'
             match_alt = re.search(patron_alt, contenido, re.IGNORECASE)
             if match_alt:
                 return float(match_alt.group(1))
             return None
-        
+
         latencias = [float(m) for m in matches]
-        
+
         if len(latencias) < 2:
             return None
-        
-        return statistics.stdev(latencias)
-        
+
+        # Cálculo de jitter según PingPlotter:
+        # diferencia absoluta entre muestras consecutivas
+        diferencias = [
+            abs(latencias[i+1] - latencias[i])
+            for i in range(len(latencias) - 1)
+        ]
+
+        jitter = sum(diferencias) / len(diferencias)
+        return jitter
+
     except FileNotFoundError:
         return None
-    except Exception as e:
+    except Exception:
         return None
+
 
 
 def calcular_paquetes_perdidos(archivo):
