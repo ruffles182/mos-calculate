@@ -14,8 +14,7 @@ class MonitorMOS:
     def __init__(self, root):
         self.root = root
         self.root.title("Monitor MOS - VoIP")
-        self.root.geometry("550x400")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
         
         self.config = None
         self.resultados = []
@@ -65,10 +64,19 @@ class MonitorMOS:
         # Limpiar ventana
         for widget in self.root.winfo_children():
             widget.destroy()
-        
+
+        # Ajustar tamaño de ventana inicial
+        self.root.geometry("")  # Resetear geometría
+
         # Frame principal
         main_frame = ttk.Frame(self.root, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
+
+        # Forzar actualización para calcular tamaño necesario
+        self.root.update_idletasks()
+
+        # Establecer tamaño mínimo razonable
+        self.root.minsize(500, 400)
         
         # Título
         ttk.Label(main_frame, text="Monitor MOS - VoIP", 
@@ -175,11 +183,15 @@ class MonitorMOS:
         # Limpiar ventana
         for widget in self.root.winfo_children():
             widget.destroy()
-        
-        # Calcular ancho necesario (300px por tarjeta + espacios)
+
+        # Calcular ancho necesario basado en número de tarjetas
         num_tarjetas = len(self.resultados)
-        ancho_minimo = max(800, num_tarjetas * 320)
-        self.root.geometry(f"{min(ancho_minimo, 1400)}x600")
+        # Ancho por tarjeta (300) + padding (20) + margen extra
+        ancho_ventana = min(num_tarjetas * 320 + 60, 1600)
+        ancho_ventana = max(ancho_ventana, 600)  # Mínimo 600px
+        alto_ventana = 550
+
+        self.root.geometry(f"{ancho_ventana}x{alto_ventana}")
         
         # Frame principal con scroll horizontal
         main_frame = ttk.Frame(self.root)
@@ -194,18 +206,29 @@ class MonitorMOS:
         canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10)
         
         # Canvas y scrollbar horizontal
-        canvas = tk.Canvas(canvas_frame, height=400)
+        canvas = tk.Canvas(canvas_frame)
         scrollbar = ttk.Scrollbar(canvas_frame, orient="horizontal", command=canvas.xview)
         scrollable_frame = ttk.Frame(canvas)
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        def actualizar_scroll(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Centrar el contenido si es más pequeño que el canvas
+            canvas_width = canvas.winfo_width()
+            frame_width = scrollable_frame.winfo_reqwidth()
+            if frame_width < canvas_width:
+                x_pos = (canvas_width - frame_width) // 2
+                canvas.coords(canvas_window, x_pos, 0)
+            else:
+                canvas.coords(canvas_window, 0, 0)
+
+        scrollable_frame.bind("<Configure>", actualizar_scroll)
+
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(xscrollcommand=scrollbar.set)
-        
+
+        # También actualizar al redimensionar el canvas
+        canvas.bind("<Configure>", actualizar_scroll)
+
         # Frame para las tarjetas en horizontal
         tarjetas_frame = ttk.Frame(scrollable_frame)
         tarjetas_frame.pack(padx=10, pady=10)

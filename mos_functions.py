@@ -322,3 +322,80 @@ def analizar_ip(ip, cantidad_pings):
         }
     except Exception as e:
         return {'error': True, 'mensaje': f'Error inesperado: {str(e)}'}
+
+
+def obtener_traceroute(host, max_hops=30, timeout=2):
+    """
+    Realiza un traceroute a un host específico usando scapy.
+
+    Parámetros:
+    - host: Dirección IP o hostname del destino
+    - max_hops: Número máximo de saltos (default: 30)
+    - timeout: Timeout en segundos para cada salto (default: 2)
+
+    Retorna:
+    - list: Lista de diccionarios con información de cada salto
+            Cada dict contiene: hop (número), ip, latency_ms, hostname
+    """
+    try:
+        from scapy.all import IP, ICMP, sr1, conf
+        import socket
+        import logging
+        import warnings
+
+        # Deshabilitar warnings de scapy completamente
+        conf.verb = 0
+        logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+        logging.getLogger("scapy").setLevel(logging.ERROR)
+        warnings.filterwarnings("ignore", category=Warning)
+
+        resultado = []
+        destino_alcanzado = False
+
+        for ttl in range(1, max_hops + 1):
+            # Crear paquete ICMP con TTL específico
+            paquete = IP(dst=host, ttl=ttl) / ICMP()
+
+            # Enviar paquete y esperar respuesta
+            inicio = time.time()
+            respuesta = sr1(paquete, verbose=0, timeout=timeout)
+            fin = time.time()
+
+            if respuesta is None:
+                # Sin respuesta (timeout)
+                resultado.append({
+                    'hop': ttl,
+                    'ip': '*',
+                    'latency_ms': None,
+                    'hostname': None
+                })
+            else:
+                # Calcular latencia
+                latencia_ms = (fin - inicio) * 1000
+                ip_respuesta = respuesta.src
+
+                # Intentar resolver hostname
+                hostname = None
+                try:
+                    hostname = socket.gethostbyaddr(ip_respuesta)[0]
+                except:
+                    pass
+
+                resultado.append({
+                    'hop': ttl,
+                    'ip': ip_respuesta,
+                    'latency_ms': round(latencia_ms, 2),
+                    'hostname': hostname
+                })
+
+                # Verificar si llegamos al destino
+                if ip_respuesta == host or respuesta.type == 0:
+                    destino_alcanzado = True
+                    break
+
+        return resultado
+
+    except Exception as e:
+        # Retornar lista vacía con información de error
+        print(f"Error en traceroute: {str(e)}")
+        return []
